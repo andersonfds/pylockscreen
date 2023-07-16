@@ -4,6 +4,7 @@ import argparse
 import os
 import time
 from sys import platform
+from src.device_checker import DeviceChecker
 
 ## Parse arguments
 parser = argparse.ArgumentParser(description='Simple BLE')
@@ -12,47 +13,36 @@ parser.add_argument('-d', '--device', type=str, required=True, help='BLE device 
 parser.add_argument('-t', '--threshold', type=int, default=10, help='Threshold for distance (cm)')
 
 args = parser.parse_args()
+device = DeviceChecker()
+did_auto_lock = False
+initial_state = True
 
 ## Setting up adapter
 adapter : ble.Adapter = ble.Adapter.get_adapters()[0]
 distances = np.array([])
 main_loop = True
+did_change_state = False
 
 def get_distance(power, rssi):
     return 10 ** ((power - rssi) / 20)
 
-def get_platform():
-    if platform == "linux" or platform == "linux2":
-        return "linux"
-    elif platform == "darwin":
-        return "mac"
-    elif platform == "win32":
-        return "win"
+def is_increasing():
+    global distances
 
-def send_lock_mac():
-    os.system('pmset displaysleepnow')
+    if len(distances) < 10:
+        return False
 
-def send_lock_win():
-    os.system('rundll32.exe user32.dll,LockWorkStation')
+    first_five = distances[:5]
+    last_five = distances[5:]
 
-def send_lock_linux():
-    os.system('gnome-screensaver-command -l')
+    first_five_mean = np.mean(first_five)
+    last_five_mean = np.mean(last_five)
 
-def lock_screen():
-    platform = get_platform()
-    if platform == "mac":
-        send_lock_mac()
-    elif platform == "win":
-        send_lock_win()
-    elif platform == "linux":
-        send_lock_linux()
-
-def on_scan_stop():
-    global main_loop
-    main_loop = False
-    pass
+    return last_five_mean > first_five_mean
 
 def on_device_scanned(peripheral: ble.Peripheral):
+    global device
+    global did_auto_lock
     identifier = peripheral.identifier()
 
     if identifier != args.device:
@@ -70,18 +60,41 @@ def on_device_scanned(peripheral: ble.Peripheral):
         distances = distances[1:]
     
     average = int(np.mean(distances))
+    is_distance_increase = is_increasing()
 
-    if average >= args.threshold:
-        lock_screen()
+    if average >= args.threshold and not did_auto_lock:
+        did_auto_lock = True
         adapter.scan_stop()
+        device.lock_screen()
+        print("locked screen")
+
 
 adapter.set_callback_on_scan_updated(on_device_scanned)
-adapter.set_callback_on_scan_stop(on_scan_stop)
-adapter.scan_start()
 
-try:
-    while main_loop:
+last_is_locked = device.check_is_screen_locked()
+
+while main_loop:
+    try:
+        is_locked = device.check_is_screen_locked()
+        did_change_state = is_locked != last_is_locked
+        last_is_locked = is_locked
+
+        if did_change_state or initial_state:
+            initial_state = False
+            is_scanning = adapter.scan_is_active()
+
+            if not is_locked:
+                did_auto_lock = False
+
+            if is_locked and is_scanning:
+                adapter.scan_stop()
+                print("should stop scanning")
+
+            if not is_locked and not is_scanning:
+                adapter.scan_start()
+                print("should start scanning")
+
         time.sleep(1)
-        pass
-except KeyboardInterrupt:
-    exit(0)
+    except KeyboardInterrupt:
+        adapter.scan_stop()
+        exit(0)
