@@ -2,12 +2,11 @@ import ctypes
 import os
 import sys
 
-import Quartz
-
 
 class DeviceCheckerMac:
 
     def check_is_screen_locked(self):
+        import Quartz
         d = Quartz.CGSessionCopyCurrentDictionary()
         return d.get("CGSSessionScreenIsLocked", 0) == 1
 
