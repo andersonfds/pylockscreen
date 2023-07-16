@@ -5,26 +5,31 @@ import os
 import time
 from sys import platform
 from src.device_checker import DeviceChecker
+import signal
 
-## Parse arguments
+# Parse arguments
 parser = argparse.ArgumentParser(description='Simple BLE')
 
-parser.add_argument('-d', '--device', type=str, required=True, help='BLE device name')
-parser.add_argument('-t', '--threshold', type=int, default=10, help='Threshold for distance (cm)')
+parser.add_argument('-d', '--device', type=str,
+                    required=True, help='BLE device name')
+parser.add_argument('-t', '--threshold', type=int,
+                    default=10, help='Threshold for distance (cm)')
 
 args = parser.parse_args()
 device = DeviceChecker()
 did_auto_lock = False
 initial_state = True
 
-## Setting up adapter
-adapter : ble.Adapter = ble.Adapter.get_adapters()[0]
+# Setting up adapter
+adapter: ble.Adapter = ble.Adapter.get_adapters()[0]
 distances = np.array([])
 main_loop = True
 did_change_state = False
 
+
 def get_distance(power, rssi):
     return 10 ** ((power - rssi) / 20)
+
 
 def is_increasing():
     global distances
@@ -40,6 +45,7 @@ def is_increasing():
 
     return last_five_mean > first_five_mean
 
+
 def on_device_scanned(peripheral: ble.Peripheral):
     global device
     global did_auto_lock
@@ -47,18 +53,18 @@ def on_device_scanned(peripheral: ble.Peripheral):
 
     if identifier != args.device:
         return
-    
+
     distance = get_distance(peripheral.tx_power(), peripheral.rssi())
 
     if distance == 0:
         return
-    
+
     global distances
     distances = np.append(distances, distance)
 
     if len(distances) > 10:
         distances = distances[1:]
-    
+
     average = int(np.mean(distances))
     is_distance_increase = is_increasing()
 
@@ -73,28 +79,32 @@ adapter.set_callback_on_scan_updated(on_device_scanned)
 
 last_is_locked = device.check_is_screen_locked()
 
+
+def handle_interrupt(signal, frame):
+    # Add any cleanup code here if needed
+    exit(0)
+
+
+signal.signal(signal.SIGINT, handle_interrupt)
+
 while main_loop:
-    try:
-        is_locked = device.check_is_screen_locked()
-        did_change_state = is_locked != last_is_locked
-        last_is_locked = is_locked
+    is_locked = device.check_is_screen_locked()
+    did_change_state = is_locked != last_is_locked
+    last_is_locked = is_locked
 
-        if did_change_state or initial_state:
-            initial_state = False
-            is_scanning = adapter.scan_is_active()
+    if did_change_state or initial_state:
+        initial_state = False
+        is_scanning = adapter.scan_is_active()
 
-            if not is_locked:
-                did_auto_lock = False
+        if not is_locked:
+            did_auto_lock = False
 
-            if is_locked and is_scanning:
-                adapter.scan_stop()
-                print("should stop scanning")
+        if is_locked and is_scanning:
+            adapter.scan_stop()
+            print("should stop scanning")
 
-            if not is_locked and not is_scanning:
-                adapter.scan_start()
-                print("should start scanning")
+        if not is_locked and not is_scanning:
+            adapter.scan_start()
+            print("should start scanning")
 
-        time.sleep(1)
-    except KeyboardInterrupt:
-        adapter.scan_stop()
-        exit(0)
+    time.sleep(1)
