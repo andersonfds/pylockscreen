@@ -15,6 +15,8 @@ parser.add_argument('-d', '--device', type=str,
 parser.add_argument('-t', '--threshold', type=int,
                     default=10, help='Threshold for distance (cm)')
 
+parser.add_argument('--debug', action='store_true', help='Debug mode')
+
 args = parser.parse_args()
 device = DeviceChecker()
 did_auto_lock = False
@@ -26,6 +28,10 @@ distances = np.array([])
 main_loop = True
 did_change_state = False
 
+
+def debug_print(*args):
+    if args.debug:
+        print(*args)
 
 def get_distance(power, rssi):
     return 10 ** ((power - rssi) / 20)
@@ -66,13 +72,14 @@ def on_device_scanned(peripheral: ble.Peripheral):
         distances = distances[1:]
 
     average = int(np.mean(distances))
-    is_distance_increase = is_increasing()
 
     if average >= args.threshold and not did_auto_lock:
         did_auto_lock = True
         adapter.scan_stop()
         device.lock_screen()
-        print("locked screen")
+        debug_print("Locked screen with distance", average, "cm")
+    else:
+        debug_print(f'[{average}] Threshold not reached')
 
 
 adapter.set_callback_on_scan_updated(on_device_scanned)
@@ -101,10 +108,10 @@ while main_loop:
 
         if is_locked and is_scanning:
             adapter.scan_stop()
-            print("should stop scanning")
+            debug_print("should stop scanning")
 
         if not is_locked and not is_scanning:
             adapter.scan_start()
-            print("should start scanning")
+            debug_print("should start scanning")
 
     time.sleep(1)
