@@ -20,12 +20,12 @@ class DeviceCheckerMac:
 class DeviceCheckerWindows:
 
     def check_is_screen_locked(self):
-        return ctypes.windll.user32.LockWorkStation() == 0
+        return ctypes.windll.user32.GetForegroundWindow() % 10 == 0
 
     def lock_screen(self):
         if self.check_is_screen_locked():
             return
-        os.system('rundll32.exe user32.dll,LockWorkStation')
+        return ctypes.windll.user32.LockWorkStation() == 0
 
 
 class DeviceCheckerLinux:
