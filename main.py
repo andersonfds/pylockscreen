@@ -6,6 +6,8 @@ import time
 from sys import platform
 from src.device_checker import DeviceChecker
 import signal
+from src.logger import Logger
+from src.algorithms.curves import calculate_curve
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='Simple BLE')
@@ -21,6 +23,7 @@ args = parser.parse_args()
 device = DeviceChecker()
 did_auto_lock = False
 initial_state = True
+logger = Logger(args.debug)
 
 # Setting up adapter
 adapter: ble.Adapter = ble.Adapter.get_adapters()[0]
@@ -28,10 +31,6 @@ distances = np.array([])
 main_loop = True
 did_change_state = False
 
-
-def debug_print(*args):
-    if args.debug:
-        print(*args)
 
 def get_distance(power, rssi):
     return 10 ** ((power - rssi) / 20)
@@ -70,16 +69,19 @@ def on_device_scanned(peripheral: ble.Peripheral):
 
     if len(distances) > 10:
         distances = distances[1:]
+    else:
+        return
 
     average = int(np.mean(distances))
+    is_increasing = calculate_curve(distances, curve="increasing", logger=logger)
 
-    if average >= args.threshold and not did_auto_lock:
+    logger.log(f"Average distance: {average}")
+
+    if average >= args.threshold and not did_auto_lock and is_increasing:
         did_auto_lock = True
         adapter.scan_stop()
         device.lock_screen()
-        debug_print("Locked screen with distance", average, "cm")
-    else:
-        debug_print(f'[{average}] Threshold not reached')
+        logger.log("Locked screen with distance", average)
 
 
 adapter.set_callback_on_scan_updated(on_device_scanned)
@@ -88,9 +90,7 @@ last_is_locked = device.check_is_screen_locked()
 
 
 def handle_interrupt(signal, frame):
-    # Add any cleanup code here if needed
     exit(0)
-
 
 signal.signal(signal.SIGINT, handle_interrupt)
 
@@ -108,10 +108,10 @@ while main_loop:
 
         if is_locked and is_scanning:
             adapter.scan_stop()
-            debug_print("should stop scanning")
+            logger.log("should stop scanning")
 
         if not is_locked and not is_scanning:
             adapter.scan_start()
-            debug_print("should start scanning")
+            logger.log("should start scanning")
 
     time.sleep(1)
